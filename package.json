@@ -1,7 +1,7 @@
 {
-  "name": "mifmapxl",
-  "version": "1.0.4",
-  "description": "Desktop app to convert MapInfo MIF/MID files to Excel with region row colors.",
+  "name": "mifkit",
+  "version": "1.1.0",
+  "description": "MapInfo data toolkit — convert MIF/MID to Excel, KML/KMZ to MapInfo, and other geo formats. Desktop GUI and CLI.",
   "main": "src/main/main.js",
   "author": {
     "name": "Alexey Fedyunin",
@@ -25,8 +25,8 @@
     "electron-builder": "^26.0.12"
   },
   "build": {
-    "appId": "com.fedyunin.mifmapxl",
-    "productName": "MifMapXL",
+    "appId": "com.fedyunin.mifkit",
+    "productName": "MifKit",
     "artifactName": "${productName}-${os}-${arch}.${ext}",
     "directories": {
       "output": "dist"

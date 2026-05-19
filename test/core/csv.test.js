@@ -7,7 +7,7 @@ const os = require('node:os')
 const { writeCsvFile } = require('../../src/core/csv')
 
 function tmpFile(name) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mifmapxl-csv-'))
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mifkit-csv-'))
   return path.join(dir, name)
 }
 

@@ -11,7 +11,7 @@ const { runConversion } = require('../../src/core/convert')
 const FIXTURES = path.join(__dirname, '..', 'fixtures')
 
 function mkTmp() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'mifmapxl-it-'))
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'mifkit-it-'))
 }
 
 function copyFixture(srcName, dstDir, dstName) {
