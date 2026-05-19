@@ -3,7 +3,8 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron')
 contextBridge.exposeInMainWorld('api', {
   selectInputFolder: () => ipcRenderer.invoke('dialog:selectInputFolder'),
   selectOutputFolder: () => ipcRenderer.invoke('dialog:selectOutputFolder'),
-  selectFiles: () => ipcRenderer.invoke('dialog:selectFiles'),
+  selectFiles: (options) => ipcRenderer.invoke('dialog:selectFiles', options),
+  listConverters: () => ipcRenderer.invoke('converters:list'),
   loadSettings: () => ipcRenderer.invoke('settings:load'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
   startConversion: (config) => ipcRenderer.invoke('convert:start', config),
