@@ -2,7 +2,9 @@
 
 ## Project name
 
-MifMapXL — MapInfo MIF/MID → Excel/CSV desktop converter
+MifKit — MapInfo data toolkit (desktop GUI + CLI). Renamed from MifMapXL in 1.1.0.
+
+The notes below describe the original `mif-to-xlsx` feature, which remains the first converter. Newer converters (KML/KMZ ↔ MapInfo, GeoJSON, Shapefile, etc.) are added as additional entries in `src/core/converters/` under the same Converter contract — see `src/core/converters/types.js` and `registry.js`.
 
 ## Purpose
 

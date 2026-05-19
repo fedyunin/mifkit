@@ -16,7 +16,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
-    title: 'MifMapXL',
+    title: 'MifKit',
   })
 
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'))
