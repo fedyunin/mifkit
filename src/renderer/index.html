@@ -12,7 +12,7 @@
       <header class="hero">
         <div>
           <h1>MifKit</h1>
-          <p data-i18n="app.subtitle">Convert MIF/MID into XLSX with optional row fill from region color.</p>
+          <p data-i18n="app.subtitle">MapInfo data toolkit. Pick a converter and run it.</p>
         </div>
         <div class="hero-actions">
           <select
@@ -29,6 +29,13 @@
       </header>
 
       <main class="grid">
+        <section class="card">
+          <h2 data-i18n="section.converter">Converter</h2>
+          <label class="field-label" for="converterSelect" data-i18n="field.converter">Conversion direction</label>
+          <select id="converterSelect" class="converter-select"></select>
+          <p id="converterDescription" class="hint"></p>
+        </section>
+
         <section class="card drop-zone" id="sourceCard">
           <h2 data-i18n="section.source">Source</h2>
 
@@ -49,10 +56,6 @@
               <input id="inputFolder" type="text" readonly data-i18n-placeholder="placeholder.inputFolder" />
               <button id="selectInputFolderButton" data-i18n="btn.browse">Browse</button>
             </div>
-            <label class="checkbox">
-              <input id="recursive" type="checkbox" checked />
-              <span data-i18n="opt.recursive">Scan subfolders</span>
-            </label>
           </div>
 
           <div id="filesModeBlock" class="stack hidden">
@@ -64,7 +67,7 @@
             <div id="selectedFilesList" class="file-list empty" data-i18n="list.noFiles">No files selected</div>
           </div>
 
-          <div class="drop-hint" data-i18n="drop.hint">Drop MIF/MID files or a folder here</div>
+          <div id="dropHint" class="drop-hint" data-i18n="drop.hint">Drop files or a folder here</div>
         </section>
 
         <section class="card">
@@ -79,44 +82,8 @@
 
         <section class="card">
           <h2 data-i18n="section.options">Options</h2>
-          <div class="options-grid">
-            <label class="checkbox">
-              <input id="paintRows" type="checkbox" checked />
-              <span data-i18n="opt.paintRows">Fill row background in Excel</span>
-            </label>
-            <label class="checkbox">
-              <input id="skipBlack" type="checkbox" checked />
-              <span data-i18n="opt.skipBlack">Skip black color (#000000)</span>
-            </label>
-            <label class="checkbox">
-              <input id="combineIntoOneWorkbook" type="checkbox" />
-              <span data-i18n="opt.combine">Combine all files into one workbook</span>
-            </label>
-            <label class="checkbox">
-              <input id="includeCsv" type="checkbox" />
-              <span data-i18n="opt.csv">Also export CSV</span>
-            </label>
-            <label class="checkbox">
-              <input id="includeColorColumn" type="checkbox" checked />
-              <span data-i18n="opt.colorColumn">Add color column</span>
-            </label>
-            <label class="checkbox">
-              <input id="freezeHeader" type="checkbox" checked />
-              <span data-i18n="opt.freeze">Freeze header row</span>
-            </label>
-            <label class="checkbox">
-              <input id="autofilter" type="checkbox" checked />
-              <span data-i18n="opt.autofilter">Add autofilter</span>
-            </label>
-          </div>
-          <div id="combinedNameBlock" class="combined-name-block hidden">
-            <label class="field-label" for="combinedName" data-i18n="field.combinedName">Combined workbook file name</label>
-            <input id="combinedName" type="text" data-i18n-placeholder="placeholder.combinedName" />
-          </div>
-          <div id="colorColumnNameBlock" class="combined-name-block">
-            <label class="field-label" for="colorColumnName" data-i18n="field.colorColumnName">Color column name</label>
-            <input id="colorColumnName" type="text" data-i18n-placeholder="placeholder.colorColumnName" />
-          </div>
+          <div id="optionsContainer" class="options-grid"></div>
+          <p id="optionsEmpty" class="hint hidden" data-i18n="hint.optionsEmpty">This converter has no options.</p>
         </section>
 
         <section class="card actions-card">
