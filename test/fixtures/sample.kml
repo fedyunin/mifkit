@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document>
+  <name>Sample</name>
+  <Style id="redOutline">
+    <LineStyle>
+      <color>ff0000aa</color>
+      <width>2</width>
+    </LineStyle>
+    <PolyStyle>
+      <color>ff0000aa</color>
+      <fill>0</fill>
+    </PolyStyle>
+    <IconStyle>
+      <color>ff00ffff</color>
+    </IconStyle>
+  </Style>
+  <Style id="blueFilled">
+    <LineStyle>
+      <color>ff000000</color>
+      <width>1</width>
+    </LineStyle>
+    <PolyStyle>
+      <color>ffff0000</color>
+    </PolyStyle>
+  </Style>
+  <StyleMap id="redMap">
+    <Pair>
+      <key>normal</key>
+      <styleUrl>#redOutline</styleUrl>
+    </Pair>
+    <Pair>
+      <key>highlight</key>
+      <styleUrl>#blueFilled</styleUrl>
+    </Pair>
+  </StyleMap>
+  <Folder>
+    <name>Layer A</name>
+    <Placemark>
+      <name>Red Region</name>
+      <description>outlined polygon</description>
+      <styleUrl>#redMap</styleUrl>
+      <Polygon>
+        <outerBoundaryIs>
+          <LinearRing>
+            <coordinates>
+              10,20,0 11,20,0 11,21,0 10,21,0 10,20,0
+            </coordinates>
+          </LinearRing>
+        </outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+    <Placemark>
+      <name>Blue Region</name>
+      <styleUrl>#blueFilled</styleUrl>
+      <Polygon>
+        <outerBoundaryIs>
+          <LinearRing>
+            <coordinates>
+              30,40,0 31,40,0 31,41,0 30,41,0 30,40,0
+            </coordinates>
+          </LinearRing>
+        </outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+    <Folder>
+      <name>Sublayer</name>
+      <Placemark>
+        <name>Track</name>
+        <styleUrl>#redMap</styleUrl>
+        <LineString>
+          <coordinates>
+            50,60,0 51,60,0 52,61,0
+          </coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>Marker</name>
+        <styleUrl>#blueFilled</styleUrl>
+        <Point>
+          <coordinates>70,80,0</coordinates>
+        </Point>
+      </Placemark>
+    </Folder>
+  </Folder>
+</Document>
+</kml>
