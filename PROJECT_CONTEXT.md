@@ -4,437 +4,221 @@
 
 MifKit — MapInfo data toolkit (desktop GUI + CLI). Renamed from MifMapXL in 1.1.0.
 
-The notes below describe the original `mif-to-xlsx` feature, which remains the first converter. Newer converters (KML/KMZ ↔ MapInfo, GeoJSON, Shapefile, etc.) are added as additional entries in `src/core/converters/` under the same Converter contract — see `src/core/converters/types.js` and `registry.js`.
-
 ## Purpose
 
-This is a desktop app for converting MapInfo `.mif` + `.mid` pairs into:
+A growing collection of converters for MapInfo `.mif/.mid` and adjacent geo formats (KML/KMZ, GeoJSON, Shapefile, Excel). Packaged as a desktop GUI (Electron) and — once the CLI ships — a terminal binary built on the same engine.
 
-- `.xlsx` files with all original attribute fields
-- optional `.csv` export
-- an extra column `region_color_hex`
-- optional row background fill in Excel using the region fill color
-- optional skip for black fill (`#000000`)
+The target user is non-technical (Windows + MapInfo Pro), so the GUI is the primary front-end. The CLI is for power users, automation, and CI pipelines.
 
-The app is intended for non-technical Windows users who should be able to run a normal GUI app instead of using Node.js scripts in a terminal.
+The product mood is **ffmpeg for MapInfo data**: one engine, every conversion direction surfaces in both the GUI and CLI through the same contract, behavior is deterministic, output is correct enough to import into MapInfo Pro without manual fixing.
 
----
+## Architecture
 
-## Product goal
+### Three layers
 
-The user wants a simple Windows executable with UI where they can:
+1. **Core engine** — `src/core/`. Pure Node.js, no Electron dependency, testable in isolation. Each converter is one folder under `src/core/converters/` exporting a Converter object.
+2. **Desktop shell** — `src/main/` (Electron main process, IPC, worker orchestration) + `src/renderer/` (HTML/JS UI). The renderer is thin and schema-driven — it does not know any converter-specific details, it just renders forms from each converter's declarative `options[]` schema and dispatches the user's selection back through IPC.
+3. **CLI (planned)** — `bin/mifkit` will be a thin wrapper over the same registry. The same option schema validates CLI flags. GUI and CLI are interchangeable entry points to the same core.
 
-- choose a folder or specific files for processing
-- recursively scan subfolders if needed
-- generate Excel files from MapInfo data
-- add a color column extracted from polygon style
-- optionally fill Excel rows with that color
-- skip black fill if configured
-- optionally merge all outputs into one workbook
-- optionally also export CSV
+```
+src/
+  main/                            Electron shell
+    main.js · preload.js · worker.js
+  renderer/                        Desktop UI
+    index.html · renderer.js · styles.css · i18n.js
+  core/
+    common/                        Shared utilities
+      color.js                     KML AABBGGRR <-> MapInfo int <-> #RRGGBB
+      zip.js                       Minimal ZIP reader (zlib only)
+    converters/
+      registry.js                  register / get / list / validateOptions
+      types.js                     JSDoc Converter contract
+      index.js                     Auto-registers all built-in converters
+      mif-to-xlsx/                 MapInfo MIF/MID -> Excel/CSV
+      kml-to-mif/                  KML/KMZ -> MapInfo MIF/MID
+    convert.js                     Legacy orchestration for mif-to-xlsx
+                                   (still used inside that converter; will
+                                   fold into the converter folder later)
+    mif.js · mid.js                MapInfo MIF/MID parsers
+    excel.js · csv.js              Output writers
+    files.js                       Folder scan, MIF/MID pairing
+    encoding.js                    Charset detection via iconv-lite
+    settings.js                    Settings persistence with v1 -> v2 migration
+test/
+  core/ · integration/ · fixtures/ node:test suite, runs on every PR
+```
 
-The user is pragmatic and wants a working tool, not a theoretical one.
+### The Converter contract
 
----
+Every converter exports a plain object of this shape (full JSDoc lives in `src/core/converters/types.js`):
 
-## Current stack
+```js
+{
+  id: 'kml-to-mif',                       // stable kebab-case
+  name: 'KML/KMZ → MapInfo MIF/MID',
+  description: '...',
+  inputs:  { extensions: ['.kml', '.kmz'], type: 'file-or-folder' },
+  outputs: { extensions: ['.mif', '.mid'], type: 'folder' },
+  options: [
+    { key: 'flat',    type: 'boolean', default: false, label: '...', description: '...' },
+    { key: 'charset', type: 'enum',    values: ['WindowsCyrillic', 'Neutral'], default: 'WindowsCyrillic', label: '...' },
+    // ...
+  ],
+  async run({ inputs, output, options }, ctx) {
+    // ctx.log(message)
+    // ctx.progress({ total, done, currentFile })
+    // returns { outputs: string[], stats: { processed, skipped, errors: [{file, error}] } }
+  },
+}
+```
 
-- Electron
-- Node.js
-- exceljs
-- electron-builder
+The registry validates this shape on `register()`. `validateOptions()` checks each option against its declared type/enum/range before the converter runs.
 
----
+### How the GUI talks to the engine
 
-## High-level architecture
+```
+renderer (renderer.js)
+  ├─ window.api.listConverters()       → IPC converters:list → registry.list()
+  ├─ renders <select> + options form from the returned schema
+  └─ window.api.startConversion({converterId, inputs, output, options})
+        → IPC convert:start
+        → Worker thread
+        → converters.get(id).run(...)
+        → log/progress events back to the renderer
+```
 
-The project has 2 main parts:
+### Settings shape (v2)
 
-### 1. Desktop UI
-Electron app with:
-- main process
-- preload bridge
-- renderer UI
+```jsonc
+{
+  "version": 2,
+  "language": "en",
+  "inputMode": "folder",
+  "inputFolder": "...",
+  "outputFolder": "...",
+  "selectedFiles": [],
+  "converterId": "kml-to-mif",
+  "converterOptions": {
+    "mif-to-xlsx": { /* per-converter options */ },
+    "kml-to-mif":  { /* per-converter options */ }
+  }
+}
+```
 
-Responsibilities:
-- choose input folder or files
-- choose output folder
-- edit settings
-- start conversion
-- show logs and results
+`migrate()` in `src/core/settings.js` lifts legacy flat keys from v1 (1.0.x) into `converterOptions['mif-to-xlsx']` automatically on first load.
 
-### 2. Conversion engine
-Pure Node.js logic that:
-- scans files
-- matches `.mif` with corresponding `.mid`
-- parses MIF metadata and geometry style
-- parses MID records
-- builds CSV/XLSX output
-- applies Excel row fill
-- skips black when requested
+## Shipped converters
 
-The conversion logic should stay mostly independent from Electron UI so it can be tested separately and reused later in CLI mode if needed.
+### mif-to-xlsx — MapInfo → Excel/CSV
 
----
+Original feature inherited from MifMapXL. Reads MIF column declarations and MID rows, extracts polygon brush foreground colors, writes `.xlsx` (and optional `.csv`) with a `region_color_hex` column and optional row background fill. Implementation currently delegates to `src/core/convert.js` via a thin adapter; can fold the legacy engine into `converters/mif-to-xlsx/` in a later refactor without changing behavior.
+
+### kml-to-mif — KML/KMZ → MapInfo MIF/MID
+
+Reads KML and KMZ archives, resolves each Placemark's `styleUrl` through `StyleMap → Style` chains, emits MIF/MID with matching `Pen` / `Brush` / `Symbol` styling and an attribute schema of Name + Description + StyleId + Folder. Folder hierarchy preserved as nested directories (default) or one flat directory with `parent__child` prefixes (`flat: true`). Charset: `WindowsCyrillic` (cp1251) by default for Russian/Kazakh data; `Neutral` (UTF-8) for MapInfo Pro 15.2+.
+
+Byte-identical to the reference Python script `kml_to_mif.py` (kept outside the repo) on a real 1854-feature dataset.
+
+## Planned converters
+
+| id              | direction                                    | rationale |
+|-----------------|----------------------------------------------|-----------|
+| `mif-to-kml`    | MapInfo MIF/MID → KML/KMZ                    | Reverse direction. Validates the contract works both ways. Useful for exporting MapInfo layers to Google Earth. |
+| `mif-to-geojson`| MapInfo MIF/MID → GeoJSON                    | Modern GIS interchange. |
+| `geojson-to-mif`| GeoJSON → MapInfo MIF/MID                    | Reverse. |
+| `shp-to-mif`    | Shapefile → MapInfo MIF/MID                  | Killer feature — no other browser-installable tool does this without GDAL. |
+| `mif-to-shp`    | MapInfo MIF/MID → Shapefile                  | Reverse. |
+| `excel-to-mif`  | Excel/CSV with coordinates → MIF/MID Points  | Geocoding from spreadsheets. |
+| `mif-merge`     | Multiple MIF → one MIF                       | Utility op. |
+| `mif-split`     | One MIF → multiple MIF (by attribute)        | Utility op. |
+| `mif-style-set` | Batch style change on a MIF                  | Utility op. |
+
+Adding a new converter is one folder under `src/core/converters/`, one fixture under `test/fixtures/`, one entry in `src/core/converters/index.js`. The GUI and (future) CLI pick it up automatically.
 
 ## Input format assumptions
 
-### MIF
-Used for:
-- column definitions
-- charset
-- geometry/style records
-- `Brush(...)` parsing for polygon fill color
+### MIF (read)
+- Column declarations parsed from the `Columns N` block.
+- Charset detected from the `Charset "..."` line via `iconv-lite`.
+- Style lines parsed for `Brush(pattern, fg, bg)` — currently only `fg` is consumed (for the Excel color column).
+- Geometry keywords supported by the parser: `point`, `line`, `pline`, `region`, `arc`, `text`, `rectangle`, `roundrect`, `ellipse`, `multipoint`, `collection`, `none`.
 
-### MID
-Used for:
-- attribute rows corresponding to MIF objects
+### MID (read)
+- CSV-like with quote-aware parsing: commas and newlines inside quoted values are preserved, doubled quotes `""` are unescaped, multiline values handled safely.
+- Row count is normalized against the header count from MIF.
 
-### Pairing
-Files are matched by basename in the same folder:
+### MIF/MID (write, kml-to-mif)
+- `Version 300`, `CoordSys Earth Projection 1, 104` (WGS 84 lat/long, the KML-native CRS).
+- CRLF line endings throughout, including newlines that were embedded inside `<description>` values in the source KML.
+- Charset declared as `WindowsCyrillic` (file encoded as cp1251) or `Neutral` (UTF-8).
+- Per-feature style strings: `Pen(width, pattern=2, color)`, `Brush(pattern, fg=color, bg=16777215)`, `Symbol(35, color, 12)`. Brush pattern 1 means "no fill" (matches KML `<fill>0</fill>`).
 
-- `example.mif`
-- `example.mid`
+### KML/KMZ (read)
+- Parsed with `fast-xml-parser`, namespace-agnostic.
+- Folder hierarchy collected by walking `Document/Folder/...`. Each leaf Folder with direct Placemarks becomes one output group; nested Folders become nested groups.
+- Style resolution: `Placemark → styleUrl → (StyleMap with key=normal) → Style`. Self-referential or unresolved chains fall back to a sensible default style.
+- KMZ archives unzipped in-process via `src/core/common/zip.js` (pure JS, `zlib` only, supports stored + deflate, rejects ZIP64).
 
-Case-insensitive matching is required on Windows.
+## Charset handling
 
----
-
-## Core functional requirements
-
-### Required
-- find `.mif` files
-- find matching `.mid`
-- parse column names from MIF `Columns`
-- parse rows from MID safely
-- extract brush color from `Brush(...)`
-- create `.xlsx`
-- append `region_color_hex`
-- optionally fill full row in Excel
-- optionally skip black `#000000`
-- work with Cyrillic data where possible
-
-### Optional / supported
-- export `.csv`
-- scan subfolders
-- combine all processed files into one workbook
-- freeze header row
-- enable autofilter
-- keep simple activity log in UI
-
----
-
-## Important implementation details
-
-### Color source
-The color is not taken from MID attributes.
-It is extracted from MIF style lines, typically:
-
-`Brush (pattern, foregroundColor, backgroundColor)`
-
-The app currently uses the foreground brush color as the region fill color.
-
-### Hex conversion
-The exported color column is:
-
-- `region_color_hex`
-
-Format:
-- `#RRGGBB`
-
-### Excel fill rule
-If row fill is enabled:
-- fill every cell in the row with the extracted color
-
-If skip-black is enabled:
-- rows with `#000000` must remain unfilled
-
-### Charset handling
 MapInfo files may use:
-- UTF-8
-- Windows-1251 / WindowsCyrillic
+- UTF-8 (called `Neutral` in MapInfo)
+- Windows-1251 / `WindowsCyrillic`
+- Other Windows-* code pages (mapped in `src/core/common/encoding.js`)
 
-The parser should continue to be defensive here.
-
-### MID parsing
-MID lines must be parsed like CSV with quote-awareness:
-- commas inside quoted values must not split fields
-- escaped double quotes should be handled
-- multiline quoted values should be handled as safely as possible
-
----
-
-## UX expectations
-
-The user prefers:
-- direct practical controls
-- minimal friction
-- no unnecessary abstractions
-- visible logs
-- settings that are obvious
-- ability to just select input and click convert
-
-A good UI is:
-- simple
-- stable
-- boring in a good way
-
-Recommended UI sections:
-- input selection
-- output selection
-- options
-- convert button
-- log panel
-
----
-
-## Suggested project structure
-
-```text
-mapinfo-xlsx-app/
-  package.json
-  README.md
-  src/
-    main/
-      main.js
-      preload.js
-    renderer/
-      index.html
-      renderer.js
-      styles.css
-    core/
-      convert.js
-      mif.js
-      mid.js
-      excel.js
-      csv.js
-      files.js
-      settings.js
-```
-
-If the current archive uses a flatter structure, it is still worth gradually moving toward this separation.
-
----
-
-## Suggested module responsibilities
-
-### `files.js`
-- scan folder
-- optional recursive walk
-- skip symlinks
-- match `.mif` and `.mid`
-- normalize case handling
-- validate input set
-
-### `mif.js`
-- detect charset from MIF header
-- parse `Columns`
-- parse style info after `Data`
-- extract brush colors
-
-### `mid.js`
-- decode MID with correct encoding
-- split into logical rows
-- parse quoted CSV-like records
-- normalize row length against header count
-
-### `excel.js`
-- create workbook
-- create one sheet or multiple sheets
-- append `region_color_hex`
-- apply row fills
-- skip black when requested
-- freeze header / autofilter / widths
-
-### `csv.js`
-- build CSV safely
-- escape commas, quotes, newlines
-- include `region_color_hex`
-
-### `convert.js`
-- orchestration layer
-- receives settings and selected inputs
-- calls scan → parse → export
-- returns structured progress/log events
-
-### `settings.js`
-- load/save UI preferences
-- defaults:
-  - skipBlack = true
-  - fillRows = true
-  - recursive = true
-  - exportCsv = false
-  - mergeToSingleWorkbook = false
-
----
-
-## Known edge cases
-
-### 1. Mismatch between MID row count and extracted brush count
-Possible causes:
-- some objects may not have `Brush(...)`
-- non-polygon geometries may exist
-- style lines may not be one-to-one in naive parsing
-
-Need:
-- clear logging
-- graceful handling
-- possibly blank color if missing
-
-### 2. Non-polygon objects
-Some layers may contain:
-- points
-- lines
-- text
-- regions
-
-Not every object has a brush fill.
-Do not crash if `Brush(...)` is absent.
-
-### 3. Root filesystem scan
-Never recursively scan `/` or an entire disk by accident.
-Guard against:
-- filesystem root
-- huge scans
-- symlink loops
-
-### 4. Broken encodings
-Some files may decode imperfectly.
-Need:
-- fallback decoding
-- warning logs
-- best-effort export
-
-### 5. Duplicate sheet names
-If combining many files into one workbook:
-- sheet names must be unique
-- Excel limit is 31 chars
-- invalid characters must be stripped
-
-### 6. Very large datasets
-Potential issues:
-- memory pressure in Excel generation
-- UI freeze if conversion runs in main thread
-
-Recommended:
-- keep heavy work off renderer
-- consider progress events
-- possibly later move work to worker process
-
----
-
-## Non-goals for now
-
-Not needed unless explicitly requested:
-- editing geometries
-- rendering map previews
-- reading thematic style from external style config
-- supporting every MapInfo style nuance
-- geospatial reprojection
-- shapefile or GeoJSON conversion
-- database import/export
-- cloud sync
-
----
-
-## Build and run
-
-### Development
-```bash
-npm install
-npm run dev
-```
-
-### Production build
-```bash
-npm run dist
-```
-
-Expected output:
-- Windows `.exe`
-- ideally portable and/or installer package via electron-builder
-
----
+The parser is defensive — anything it cannot map falls back to UTF-8. Writers explicitly declare the charset in the MIF header and encode the byte stream to match.
 
 ## Quality bar
 
-The user cares most about:
-- it works on real files
-- row colors are correct enough
-- black can be skipped
-- UI is simple
-- no terminal required for the final user
+What matters:
+- Output is correct enough to round-trip through MapInfo Pro without manual fixing.
+- Per-feature styles preserved as faithfully as the target format allows.
+- Cyrillic / Kazakh text survives every encoding step.
+- GUI does not block during conversion (work runs in `worker_threads`).
+- No native dependencies. The whole toolkit installs via `npm install` and ships as a single Electron bundle.
 
-The user does not care about:
-- overengineering
-- fancy design
-- architecture purity for its own sake
+What does not matter:
+- Theoretical purity / generic abstraction layers.
+- Supporting every obscure MapInfo style nuance up front — add cases as real datasets require.
+- Fancy UI design. The form is utilitarian on purpose.
 
----
+## Non-goals (for now)
 
-## Recommended next steps
+- Editing geometries.
+- Rendering map previews.
+- Reprojection (CoordSys conversion). All converters currently pass through the source CRS or default to WGS 84.
+- Database import/export.
+- Cloud sync of settings.
 
-### Priority 1
-- verify conversion on several real-world `.mif/.mid` samples
-- validate color extraction logic
-- validate Cyrillic text handling
-- validate row count matching
+## Build and run
 
-### Priority 2
-- improve logs and error reporting in UI
-- add drag-and-drop
-- add progress indicator
-- allow open output folder after conversion
+```bash
+npm install
+npm run dev           # Electron in dev mode
+npm test              # node:test suite
+npm run dist:mac      # DMG + zip
+npm run dist:linux    # AppImage + deb
+npm run dist:win      # portable + NSIS installer
+npm run dist          # host platform
+```
 
-### Priority 3
-- add single combined workbook mode polish
-- add summary report after run
-- add portable build preset for Windows
+Artifacts land in `dist/`.
 
----
+## Definition of done for a new converter PR
 
-## Definition of done
-
-A good result means:
-- user runs `.exe`
-- selects folder or files
-- clicks convert
-- gets `.xlsx` files
-- sees `region_color_hex`
-- rows are filled correctly
-- black rows remain unfilled if option is enabled
-- no coding knowledge needed for the end user
-
----
+1. New folder under `src/core/converters/<id>/` with `index.js` exporting a valid Converter object.
+2. Registered in `src/core/converters/index.js`.
+3. Real fixture in `test/fixtures/` covering the geometry types and edge cases the converter handles.
+4. Unit tests for pure helpers (color, parsing, writing) and an integration test that calls `converter.run()` and checks output bytes.
+5. `npm test` is green.
+6. The GUI shows the converter in the dropdown with its options form rendering correctly. (Manual smoke; UI does not need code changes.)
 
 ## Guidance for future AI assistants
 
-When working on this project, optimize for:
-- reliability over elegance
-- real file compatibility over abstract correctness
-- simple UI over complex workflows
-- minimal dependencies unless they clearly help
-
-Do not aggressively refactor working parsing logic unless there is a concrete bug or maintainability issue.
-
-When changing parsing code:
-- preserve quote-safe MID parsing
-- preserve charset handling
-- preserve Windows-friendly behavior
-- test with real MIF/MID pairs
-
-When changing UI:
-- keep it obvious
-- avoid hidden settings
-- avoid fancy component frameworks unless there is a real benefit
-
-When changing export behavior:
-- never silently drop original fields
-- always keep `region_color_hex`
-- do not fill rows with black if skip-black is enabled
-
----
-
-## Short project summary
-
-This is a Windows desktop utility that converts MapInfo `.mif/.mid` files into Excel/CSV with an extra color column and optional row background fill based on region color. The main business value is making MapInfo export usable for normal spreadsheet workflows without manual GIS steps.
+- Prefer adding a new converter to extending one — the registry is the seam of growth.
+- When extending a converter, do not break behavior validated by an existing fixture without adjusting the fixture's assertions and explaining why.
+- The Converter contract is the source of truth — when in doubt about option types or option flow, re-read `src/core/converters/types.js` and `registry.js`.
+- Settings format changes require bumping `SETTINGS_VERSION` and adding a branch in `migrate()`. Never silently drop user data.
+- The renderer should stay schema-driven. If a new feature needs a UI knob, expose it as an option on the converter, not as renderer-specific HTML.
+- Keep `src/core/` free of Electron imports. Anything that touches `electron` belongs in `src/main/` or `src/renderer/`.
+- Don't introduce native deps. If you need a ZIP, an XML parser, or an encoding lib, check `src/core/common/` first — it already covers the common cases.
