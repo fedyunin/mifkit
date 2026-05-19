@@ -6,28 +6,23 @@ const state = {
   lastOutputFile: '',
   saveTimer: null,
   settingsReady: false,
+  converters: [],
+  converterId: '',
+  converterOptions: {},
 }
 
 const SAVE_DEBOUNCE_MS = 400
 
 const elements = {
   languageSelect: document.getElementById('languageSelect'),
+  converterSelect: document.getElementById('converterSelect'),
+  converterDescription: document.getElementById('converterDescription'),
+  optionsContainer: document.getElementById('optionsContainer'),
+  optionsEmpty: document.getElementById('optionsEmpty'),
   inputFolder: document.getElementById('inputFolder'),
   outputFolder: document.getElementById('outputFolder'),
   selectedFilesSummary: document.getElementById('selectedFilesSummary'),
   selectedFilesList: document.getElementById('selectedFilesList'),
-  recursive: document.getElementById('recursive'),
-  skipBlack: document.getElementById('skipBlack'),
-  paintRows: document.getElementById('paintRows'),
-  combineIntoOneWorkbook: document.getElementById('combineIntoOneWorkbook'),
-  combinedName: document.getElementById('combinedName'),
-  combinedNameBlock: document.getElementById('combinedNameBlock'),
-  includeCsv: document.getElementById('includeCsv'),
-  includeColorColumn: document.getElementById('includeColorColumn'),
-  colorColumnName: document.getElementById('colorColumnName'),
-  colorColumnNameBlock: document.getElementById('colorColumnNameBlock'),
-  freezeHeader: document.getElementById('freezeHeader'),
-  autofilter: document.getElementById('autofilter'),
   folderModeBlock: document.getElementById('folderModeBlock'),
   filesModeBlock: document.getElementById('filesModeBlock'),
   selectInputFolderButton: document.getElementById('selectInputFolderButton'),
@@ -39,6 +34,7 @@ const elements = {
   logOutput: document.getElementById('logOutput'),
   status: document.getElementById('status'),
   sourceCard: document.getElementById('sourceCard'),
+  dropHint: document.getElementById('dropHint'),
   progressRow: document.getElementById('progressRow'),
   progressFill: document.getElementById('progressFill'),
   progressLabel: document.getElementById('progressLabel'),
@@ -48,9 +44,11 @@ window.addEventListener('DOMContentLoaded', async () => {
   bindEvents()
   setStatus('status.loading', 'idle')
 
+  state.converters = await window.api.listConverters()
+  populateConverterSelect()
+
   const savedSettings = await window.api.loadSettings()
   applySettings(savedSettings)
-  bindAutoSave()
   state.settingsReady = true
   attachListeners()
   setStatus('status.ready', 'idle')
@@ -68,9 +66,18 @@ function bindEvents() {
     const code = elements.languageSelect.value
     window.i18n.setLanguage(code)
     refreshStatusFromKey()
+    renderConverterMeta()
+    renderOptionsForm()
     if (!state.selectedFiles.length) {
       renderSelectedFiles()
     }
+    scheduleSave()
+  })
+
+  elements.converterSelect.addEventListener('change', () => {
+    state.converterId = elements.converterSelect.value
+    renderConverterMeta()
+    renderOptionsForm()
     scheduleSave()
   })
 
@@ -86,38 +93,139 @@ function bindEvents() {
   bindDragAndDrop()
 }
 
-function bindAutoSave() {
-  const checkboxes = [
-    elements.recursive,
-    elements.skipBlack,
-    elements.paintRows,
-    elements.combineIntoOneWorkbook,
-    elements.includeCsv,
-    elements.includeColorColumn,
-    elements.freezeHeader,
-    elements.autofilter,
-  ]
+function getCurrentConverter() {
+  return state.converters.find((c) => c.id === state.converterId) || state.converters[0]
+}
 
-  for (const cb of checkboxes) {
+function populateConverterSelect() {
+  const select = elements.converterSelect
+  select.replaceChildren()
+  for (const c of state.converters) {
+    const opt = document.createElement('option')
+    opt.value = c.id
+    opt.textContent = c.name
+    select.appendChild(opt)
+  }
+}
+
+function renderConverterMeta() {
+  const converter = getCurrentConverter()
+  if (!converter) {
+    elements.converterDescription.textContent = ''
+    return
+  }
+  elements.converterDescription.textContent = converter.description || ''
+}
+
+function renderOptionsForm() {
+  const converter = getCurrentConverter()
+  const container = elements.optionsContainer
+  container.replaceChildren()
+
+  if (!converter || !converter.options.length) {
+    elements.optionsEmpty.classList.remove('hidden')
+    return
+  }
+  elements.optionsEmpty.classList.add('hidden')
+
+  const saved = state.converterOptions[converter.id] || {}
+  for (const option of converter.options) {
+    container.appendChild(renderOptionField(option, saved[option.key]))
+  }
+}
+
+function renderOptionField(option, savedValue) {
+  const value = savedValue !== undefined ? savedValue : option.default
+
+  if (option.type === 'boolean') {
+    const wrapper = document.createElement('label')
+    wrapper.className = 'checkbox'
+    const cb = document.createElement('input')
+    cb.type = 'checkbox'
+    cb.checked = Boolean(value)
+    cb.dataset.optionKey = option.key
+    cb.dataset.optionType = 'boolean'
     cb.addEventListener('change', scheduleSave)
+    wrapper.appendChild(cb)
+
+    const labelText = document.createElement('span')
+    labelText.textContent = option.label
+    wrapper.appendChild(labelText)
+    return wrapper
   }
 
-  elements.combineIntoOneWorkbook.addEventListener('change', updateCombinedNameVisibility)
-  elements.combinedName.addEventListener('input', scheduleSave)
-  elements.includeColorColumn.addEventListener('change', updateColorColumnNameVisibility)
-  elements.colorColumnName.addEventListener('input', scheduleSave)
+  const wrapper = document.createElement('div')
+  wrapper.className = 'option-field stack'
+
+  const labelEl = document.createElement('label')
+  labelEl.className = 'field-label'
+  labelEl.textContent = option.label
+  wrapper.appendChild(labelEl)
+
+  let input
+  if (option.type === 'enum') {
+    input = document.createElement('select')
+    for (const v of option.values || []) {
+      const opt = document.createElement('option')
+      opt.value = v
+      opt.textContent = v
+      input.appendChild(opt)
+    }
+    input.value = value != null ? String(value) : ''
+  } else if (option.type === 'number') {
+    input = document.createElement('input')
+    input.type = 'number'
+    if (option.min !== undefined) input.min = String(option.min)
+    if (option.max !== undefined) input.max = String(option.max)
+    input.value = value != null ? String(value) : ''
+  } else {
+    input = document.createElement('input')
+    input.type = 'text'
+    input.value = value != null ? String(value) : ''
+  }
+  input.dataset.optionKey = option.key
+  input.dataset.optionType = option.type
+  input.addEventListener('input', scheduleSave)
+  input.addEventListener('change', scheduleSave)
+  wrapper.appendChild(input)
+
+  if (option.description) {
+    const hint = document.createElement('p')
+    hint.className = 'hint'
+    hint.textContent = option.description
+    wrapper.appendChild(hint)
+  }
+  return wrapper
 }
 
-function updateCombinedNameVisibility() {
-  elements.combinedNameBlock.classList.toggle('hidden', !elements.combineIntoOneWorkbook.checked)
-}
-
-function updateColorColumnNameVisibility() {
-  elements.colorColumnNameBlock.classList.toggle('hidden', !elements.includeColorColumn.checked)
+function collectOptionsFromForm() {
+  const converter = getCurrentConverter()
+  if (!converter) return {}
+  const result = {}
+  const inputs = elements.optionsContainer.querySelectorAll('[data-option-key]')
+  for (const input of inputs) {
+    const key = input.dataset.optionKey
+    const type = input.dataset.optionType
+    if (type === 'boolean') {
+      result[key] = input.checked
+    } else if (type === 'number') {
+      const raw = input.value
+      const option = converter.options.find((o) => o.key === key)
+      result[key] = raw === '' ? (option && option.default) : Number(raw)
+    } else {
+      result[key] = input.value
+    }
+  }
+  return result
 }
 
 function scheduleSave() {
   if (!state.settingsReady) return
+  // capture current form state into per-converter options before saving
+  const converter = getCurrentConverter()
+  if (converter) {
+    state.converterOptions[converter.id] = collectOptionsFromForm()
+  }
   if (state.saveTimer) clearTimeout(state.saveTimer)
   state.saveTimer = setTimeout(saveSettingsNow, SAVE_DEBOUNCE_MS)
 }
@@ -192,6 +300,9 @@ function handleDroppedItems(fileList) {
 
   if (!paths.length) return
 
+  const converter = getCurrentConverter()
+  const accepted = converter ? converter.inputs.extensions.map(stripDot) : []
+
   if (paths.length === 1) {
     const single = paths[0]
     if (looksLikeDirectory(single)) {
@@ -200,7 +311,7 @@ function handleDroppedItems(fileList) {
     }
 
     const ext = single.split('.').pop().toLowerCase()
-    if (ext === 'mif' || ext === 'mid') {
+    if (accepted.includes(ext)) {
       setFilesMode([single])
       return
     }
@@ -209,11 +320,12 @@ function handleDroppedItems(fileList) {
     return
   }
 
-  const relevant = paths.filter((p) => {
-    const ext = p.split('.').pop().toLowerCase()
-    return ext === 'mif' || ext === 'mid'
-  })
+  const relevant = paths.filter((p) => accepted.includes(p.split('.').pop().toLowerCase()))
   setFilesMode(relevant.length ? relevant : paths)
+}
+
+function stripDot(ext) {
+  return String(ext || '').replace(/^\./, '').toLowerCase()
 }
 
 function looksLikeDirectory(filePath) {
@@ -260,23 +372,46 @@ async function onSelectOutputFolder() {
 }
 
 async function onSelectFiles() {
-  const files = await window.api.selectFiles()
+  const converter = getCurrentConverter()
+  const extensions = converter ? converter.inputs.extensions.map(stripDot) : []
+  const files = await window.api.selectFiles({ extensions })
   state.selectedFiles = files || []
   renderSelectedFiles()
   scheduleSave()
 }
 
 async function onStart() {
-  const config = collectSettings()
+  const converter = getCurrentConverter()
+  if (!converter) {
+    appendLog('No converter selected', 'error')
+    return
+  }
+
+  // ensure latest form state is captured
+  state.converterOptions[converter.id] = collectOptionsFromForm()
+
+  const inputs = buildInputs()
+  if (!inputs.length) {
+    appendLog('No input selected', 'error')
+    return
+  }
+
+  const config = {
+    converterId: converter.id,
+    inputs,
+    output: elements.outputFolder.value.trim(),
+    options: state.converterOptions[converter.id],
+  }
+
   appendLog('------------------------------', 'info')
-  appendLog(`Start: ${new Date().toLocaleString()}`, 'info')
+  appendLog(`Start: ${new Date().toLocaleString()} — ${converter.id}`, 'info')
   setStatus('status.converting', 'running')
   setRunning(true)
   showProgress(true)
   updateProgress({ total: 0, done: 0 })
   elements.openOutputButton.disabled = true
   state.lastOutputFile = ''
-  state.lastOutputFolder = ''
+  state.lastOutputFolder = config.output
 
   const response = await window.api.startConversion(config)
 
@@ -301,7 +436,6 @@ async function onStart() {
       appendLog(`  ${output}`, 'info')
     }
     state.lastOutputFile = summary.outputs[0]
-    state.lastOutputFolder = summary.outputFolder || ''
     elements.openOutputButton.disabled = false
   }
 
@@ -315,6 +449,14 @@ async function onStart() {
   }
 
   setStatus('status.done', 'success', { n: summary.processed })
+}
+
+function buildInputs() {
+  if (getInputMode() === 'folder') {
+    const folder = elements.inputFolder.value.trim()
+    return folder ? [folder] : []
+  }
+  return [...state.selectedFiles]
 }
 
 async function onOpenOutput() {
@@ -332,20 +474,12 @@ function dirname(filePath) {
 function collectSettings() {
   return {
     language: elements.languageSelect.value,
+    converterId: state.converterId,
+    converterOptions: { ...state.converterOptions },
     inputMode: getInputMode(),
     inputFolder: elements.inputFolder.value.trim(),
     outputFolder: elements.outputFolder.value.trim(),
     selectedFiles: [...state.selectedFiles],
-    recursive: elements.recursive.checked,
-    skipBlack: elements.skipBlack.checked,
-    paintRows: elements.paintRows.checked,
-    combineIntoOneWorkbook: elements.combineIntoOneWorkbook.checked,
-    combinedName: elements.combinedName.value.trim(),
-    includeCsv: elements.includeCsv.checked,
-    includeColorColumn: elements.includeColorColumn.checked,
-    colorColumnName: elements.colorColumnName.value.trim(),
-    freezeHeader: elements.freezeHeader.checked,
-    autofilter: elements.autofilter.checked,
   }
 }
 
@@ -354,27 +488,23 @@ function applySettings(settings) {
   elements.languageSelect.value = lang
   window.i18n.setLanguage(lang)
 
+  state.converterOptions = settings.converterOptions ? { ...settings.converterOptions } : {}
+  const wantedId = settings.converterId
+  const fallback = state.converters[0] ? state.converters[0].id : ''
+  state.converterId = state.converters.some((c) => c.id === wantedId) ? wantedId : fallback
+  elements.converterSelect.value = state.converterId
+
   const inputMode = settings.inputMode || 'folder'
   const modeRadio = document.querySelector(`input[name="inputMode"][value="${inputMode}"]`)
   if (modeRadio) modeRadio.checked = true
 
   elements.inputFolder.value = settings.inputFolder || ''
   elements.outputFolder.value = settings.outputFolder || ''
-  elements.recursive.checked = settings.recursive !== false
-  elements.skipBlack.checked = settings.skipBlack !== false
-  elements.paintRows.checked = settings.paintRows !== false
-  elements.combineIntoOneWorkbook.checked = Boolean(settings.combineIntoOneWorkbook)
-  elements.combinedName.value = settings.combinedName || ''
-  updateCombinedNameVisibility()
-  elements.includeCsv.checked = Boolean(settings.includeCsv)
-  elements.includeColorColumn.checked = settings.includeColorColumn !== false
-  elements.colorColumnName.value = settings.colorColumnName || ''
-  updateColorColumnNameVisibility()
-  elements.freezeHeader.checked = settings.freezeHeader !== false
-  elements.autofilter.checked = settings.autofilter !== false
 
   state.selectedFiles = Array.isArray(settings.selectedFiles) ? settings.selectedFiles : []
   renderSelectedFiles()
+  renderConverterMeta()
+  renderOptionsForm()
   onInputModeChange()
 }
 
@@ -407,6 +537,7 @@ function setRunning(isRunning) {
   elements.selectFilesButton.disabled = isRunning
   elements.selectInputFolderButton.disabled = isRunning
   elements.selectOutputFolderButton.disabled = isRunning
+  elements.converterSelect.disabled = isRunning
 }
 
 function showProgress(visible) {

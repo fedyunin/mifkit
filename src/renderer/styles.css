@@ -183,6 +183,24 @@ input[type='text'] {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px 18px;
+  align-items: start;
+}
+
+.option-field {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+}
+
+.option-field input[type="text"],
+.option-field input[type="number"],
+.option-field select {
+  width: 100%;
+}
+
+.converter-select {
+  width: 100%;
+  margin-top: 6px;
 }
 
 .combined-name-block {

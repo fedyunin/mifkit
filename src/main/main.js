@@ -2,6 +2,7 @@ const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron')
 const path = require('path')
 const { Worker } = require('worker_threads')
 const { loadSettings, saveSettings } = require('../core/settings')
+const converters = require('../core/converters')
 
 let mainWindow
 
@@ -62,13 +63,11 @@ ipcMain.handle('dialog:selectOutputFolder', async () => {
   return result.filePaths[0]
 })
 
-ipcMain.handle('dialog:selectFiles', async () => {
+ipcMain.handle('dialog:selectFiles', async (event, options) => {
+  const filters = buildFileFilters(options && options.extensions)
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile', 'multiSelections'],
-    filters: [
-      { name: 'MapInfo files', extensions: ['mif', 'mid'] },
-      { name: 'All files', extensions: ['*'] },
-    ],
+    filters,
   })
 
   if (result.canceled || !result.filePaths.length) {
@@ -77,6 +76,40 @@ ipcMain.handle('dialog:selectFiles', async () => {
 
   return result.filePaths
 })
+
+function buildFileFilters(extensions) {
+  const clean = Array.isArray(extensions)
+    ? extensions.map((e) => String(e).replace(/^\./, '')).filter(Boolean)
+    : ['mif', 'mid']
+  return [
+    { name: clean.join('/').toUpperCase() || 'Files', extensions: clean },
+    { name: 'All files', extensions: ['*'] },
+  ]
+}
+
+ipcMain.handle('converters:list', async () => {
+  return converters.list().map(serializeConverter)
+})
+
+function serializeConverter(c) {
+  return {
+    id: c.id,
+    name: c.name,
+    description: c.description || '',
+    inputs: { extensions: [...c.inputs.extensions], type: c.inputs.type },
+    outputs: { extensions: [...c.outputs.extensions], type: c.outputs.type },
+    options: c.options.map((o) => ({
+      key: o.key,
+      type: o.type,
+      label: o.label || o.key,
+      description: o.description || '',
+      default: o.default,
+      values: o.values ? [...o.values] : undefined,
+      min: o.min,
+      max: o.max,
+    })),
+  }
+}
 
 ipcMain.handle('settings:load', async () => {
   return loadSettings(getSettingsPath())
