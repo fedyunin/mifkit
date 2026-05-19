@@ -3,23 +3,23 @@
 [![Latest release](https://img.shields.io/github/v/release/fedyunin/mifkit)](https://github.com/fedyunin/mifkit/releases/latest)
 [![Tests](https://github.com/fedyunin/mifkit/actions/workflows/test.yml/badge.svg)](https://github.com/fedyunin/mifkit/actions/workflows/test.yml)
 
-MapInfo data toolkit. A growing set of converters for MapInfo `.mif/.mid` and adjacent geo formats (KML/KMZ, GeoJSON, Shapefile, Excel) — packaged as a desktop GUI (Electron) and a CLI built on the same engine.
+MapInfo data toolkit. A growing set of converters for MapInfo `.mif/.mid` and adjacent geo formats (KML/KMZ, GeoJSON, Shapefile, Excel) — packaged as a desktop GUI (Electron) and, once it ships, a CLI built on the same engine. Pick a converter, point it at your data, get clean output.
 
-> Renamed from **MifMapXL** in 1.1.0. Old GitHub URLs auto-redirect. The Excel export feature is unchanged — it is now one converter (`mif-to-xlsx`) inside a pluggable registry.
+> Renamed from **MifMapXL** in 1.1.0. Old GitHub URLs auto-redirect. The Excel export feature is unchanged — it is now one of several converters in a pluggable registry, with a UI that adapts to whichever direction you pick.
 
 ## Converters
 
-| id              | direction                                  | status     |
-|-----------------|--------------------------------------------|------------|
-| `mif-to-xlsx`   | MapInfo MIF/MID → Excel (`.xlsx`, `.csv`)  | shipped    |
-| `kml-to-mif`    | KML/KMZ → MapInfo MIF/MID                  | planned    |
-| `mif-to-kml`    | MapInfo MIF/MID → KML/KMZ                  | planned    |
-| `mif-to-geojson`| MapInfo MIF/MID → GeoJSON                  | planned    |
-| `geojson-to-mif`| GeoJSON → MapInfo MIF/MID                  | planned    |
-| `shp-to-mif`    | Shapefile → MapInfo MIF/MID                | planned    |
-| `mif-to-shp`    | MapInfo MIF/MID → Shapefile                | planned    |
+| id              | direction                                   | status     |
+|-----------------|---------------------------------------------|------------|
+| `mif-to-xlsx`   | MapInfo MIF/MID → Excel (`.xlsx`, `.csv`)   | **shipped** |
+| `kml-to-mif`    | KML/KMZ → MapInfo MIF/MID                   | **shipped** |
+| `mif-to-kml`    | MapInfo MIF/MID → KML/KMZ                   | planned    |
+| `mif-to-geojson`| MapInfo MIF/MID → GeoJSON                   | planned    |
+| `geojson-to-mif`| GeoJSON → MapInfo MIF/MID                   | planned    |
+| `shp-to-mif`    | Shapefile → MapInfo MIF/MID                 | planned    |
+| `mif-to-shp`    | MapInfo MIF/MID → Shapefile                 | planned    |
 
-Adding a converter is one folder under `src/core/converters/`, one test fixture, and one entry in the registry — it then appears automatically in the GUI and CLI.
+Adding a converter is one folder under `src/core/converters/`, one test fixture, and one entry in the registry — it then appears automatically in the GUI dropdown with an options form rendered from the schema.
 
 ## Download
 
@@ -47,23 +47,33 @@ xattr -dr com.apple.quarantine /Applications/MifKit.app
 
 Unsigned Windows builds may show “Windows protected your PC”. Click **More info → Run anyway**.
 
-## `mif-to-xlsx` features
+## Feature highlights
+
+### `mif-to-xlsx` (MapInfo → Excel/CSV)
 
 - choose either a folder or specific files
 - recursive folder scan
-- export one xlsx per source file or one combined workbook
-- optional csv export
-- optional row fill from `Brush(...)`
-- skip black fill `#000000`
-- remembers settings between launches
-- log window with processing output
+- export one `.xlsx` per source file or one combined workbook
+- optional `.csv` export
+- optional row fill from `Brush(...)` foreground color
+- skip black fill `#000000` (e.g. when "no color" was stored as black)
+- per-converter settings remembered between launches
+
+### `kml-to-mif` (KML/KMZ → MapInfo)
+
+- per-feature colors preserved via `styleUrl → StyleMap → Style` resolution; KML `AABBGGRR` is converted to MapInfo's decimal RGB and emitted as matching `Pen` / `Brush` / `Symbol`
+- four MID attribute columns: `Name`, `Description`, resolved `StyleId`, full `Folder` path (so you can `Select * where Folder like "..."` in MapInfo SQL)
+- KML Folder hierarchy preserved as nested directories on disk, or flattened into one directory with `parent__child` prefixes (`flat` option)
+- charsets: `WindowsCyrillic` (cp1251, default) for Russian/Kazakh data, or `Neutral` (UTF-8) for MapInfo Pro 15.2+
+- KMZ archives unzipped in-process — no external tools needed
+- byte-identical output to the reference Python script on a real 1854-feature dataset
 
 ## Build from source
 
 ```bash
 npm install
 npm run dev           # run in development
-npm test              # run the test suite
+npm test              # run the test suite (81 tests, ~0.5s)
 npm run dist:mac      # DMG + zip (macOS)
 npm run dist:linux    # AppImage + deb (Linux)
 npm run dist:win      # portable + NSIS installer (Windows)
@@ -81,21 +91,59 @@ src/
   renderer/                        Desktop UI (HTML + vanilla JS + CSS, i18n)
     index.html · renderer.js · styles.css · i18n.js
   core/
-    convert.js                     legacy orchestration for mif-to-xlsx (will fold into the converter)
-    mif.js · mid.js                MapInfo MIF/MID parsers
-    excel.js · csv.js              output writers
-    files.js                       folder scan, MIF/MID pairing
-    encoding.js                    charset detection via iconv-lite
-    settings.js                    settings persistence
+    common/                        Shared utilities
+      color.js                     KML AABBGGRR <-> MapInfo int <-> #RRGGBB
+      zip.js                       Minimal ZIP reader (zlib only)
     converters/
       registry.js                  register / get / list / validateOptions
       types.js                     JSDoc Converter contract
       index.js                     auto-registers all converters
-      mif-to-xlsx/                 first converter (wraps convert.js for now)
+      mif-to-xlsx/                 MapInfo MIF/MID -> Excel/CSV
+      kml-to-mif/                  KML/KMZ -> MapInfo MIF/MID
+    convert.js                     legacy orchestration used by mif-to-xlsx
+    mif.js · mid.js                MapInfo MIF/MID parsers
+    excel.js · csv.js              output writers
+    files.js                       folder scan, MIF/MID pairing
+    encoding.js                    charset detection via iconv-lite
+    settings.js                    v1 -> v2 settings migration
 test/
   core/ · integration/ · fixtures/ node:test suite, runs on every PR
 ```
 
+## Adding a new converter
+
+The Converter contract is a plain object — see `src/core/converters/types.js` for the JSDoc and `src/core/converters/kml-to-mif/index.js` for a real example.
+
+```js
+// src/core/converters/your-id/index.js
+module.exports = {
+  id: 'your-id',
+  name: 'Your Source → Your Target',
+  description: 'One-line summary that shows up under the dropdown in the GUI.',
+  inputs:  { extensions: ['.src'], type: 'file-or-folder' },
+  outputs: { extensions: ['.dst'], type: 'folder' },
+  options: [
+    { key: 'flag', type: 'boolean', default: false, label: 'Pretty label' },
+    { key: 'mode', type: 'enum', values: ['a', 'b'], default: 'a', label: 'Mode' },
+  ],
+  async run({ inputs, output, options }, ctx) {
+    ctx.log(`Starting ${this.id}`)
+    ctx.progress({ total: inputs.length, done: 0 })
+    // ... do the work ...
+    return {
+      outputs: ['/path/to/produced.dst'],
+      stats: { processed: 1, skipped: 0, errors: [] },
+    }
+  },
+}
+```
+
+Then add it to `src/core/converters/index.js`, drop a fixture in `test/fixtures/`, write a test under `test/integration/`, and run `npm test`. The desktop app will surface it automatically — the renderer reads the registry on startup and builds its converter dropdown + options form from each converter's schema.
+
 ## Architecture notes
 
-Every converter exports a plain object: `id`, `name`, `inputs/outputs` shape, declarative `options[]` schema, and an async `run({inputs, output, options}, ctx)`. The GUI builds its options panel from the schema; the CLI parses flags from the same schema. Both call the same `run` so behavior is identical regardless of the entry point.
+Every converter exports a plain object: `id`, `name`, `inputs/outputs` shape, declarative `options[]` schema, and an async `run({inputs, output, options}, ctx)`. The GUI builds its options panel from the schema; the (future) CLI will parse flags from the same schema. Both call the same `run` so behavior is identical regardless of the entry point.
+
+The desktop app runs every conversion inside a `worker_threads` Worker so the UI stays responsive. Log lines and progress events are forwarded back to the renderer over IPC. Settings are persisted as JSON in Electron's userData directory and auto-migrated from older formats on load.
+
+For deeper background on the architecture, contracts, and quality bar, see [PROJECT_CONTEXT.md](./PROJECT_CONTEXT.md).
