@@ -18,14 +18,19 @@ The product mood is **ffmpeg for MapInfo data**: one engine, every conversion di
 
 1. **Core engine** — `src/core/`. Pure Node.js, no Electron dependency, testable in isolation. Each converter is one folder under `src/core/converters/` exporting a Converter object.
 2. **Desktop shell** — `src/main/` (Electron main process, IPC, worker orchestration) + `src/renderer/` (HTML/JS UI). The renderer is thin and schema-driven — it does not know any converter-specific details, it just renders forms from each converter's declarative `options[]` schema and dispatches the user's selection back through IPC.
-3. **CLI (planned)** — `bin/mifkit` will be a thin wrapper over the same registry. The same option schema validates CLI flags. GUI and CLI are interchangeable entry points to the same core.
+3. **CLI** — `bin/mifkit` is a thin wrapper over `src/cli/index.js` which dispatches `list` / `help` / `convert` commands through the same registry. Option flags are parsed against each converter's schema (booleans via `--key` / `--no-key`, everything else via `--key=value`). GUI and CLI are interchangeable entry points to the same core.
 
 ```
+bin/
+  mifkit.js                        CLI entry — thin shebang over src/cli
 src/
   main/                            Electron shell
     main.js · preload.js · worker.js
   renderer/                        Desktop UI
     index.html · renderer.js · styles.css · i18n.js
+  cli/                             CLI — same registry, different front-end
+    index.js                       runCli(argv): commands list / help / convert
+    parseArgs.js · coerceOptions.js · format.js
   core/
     common/                        Shared utilities
       color.js                     KML AABBGGRR <-> MapInfo int <-> #RRGGBB
@@ -45,7 +50,8 @@ src/
     encoding.js                    Charset detection via iconv-lite
     settings.js                    Settings persistence with v1 -> v2 migration
 test/
-  core/ · integration/ · fixtures/ node:test suite, runs on every PR
+  cli/ · core/ · integration/      node:test suite, runs on every PR
+  fixtures/                        small MIF/MID/KML samples
 ```
 
 ### The Converter contract
