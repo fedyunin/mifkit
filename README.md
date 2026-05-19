@@ -3,7 +3,7 @@
 [![Latest release](https://img.shields.io/github/v/release/fedyunin/mifkit)](https://github.com/fedyunin/mifkit/releases/latest)
 [![Tests](https://github.com/fedyunin/mifkit/actions/workflows/test.yml/badge.svg)](https://github.com/fedyunin/mifkit/actions/workflows/test.yml)
 
-MapInfo data toolkit. A growing set of converters for MapInfo `.mif/.mid` and adjacent geo formats (KML/KMZ, GeoJSON, Shapefile, Excel) — packaged as a desktop GUI (Electron) and, once it ships, a CLI built on the same engine. Pick a converter, point it at your data, get clean output.
+MapInfo data toolkit. A growing set of converters for MapInfo `.mif/.mid` and adjacent geo formats (KML/KMZ, GeoJSON, Shapefile, Excel) — packaged as a desktop GUI (Electron) **and** a CLI built on the same engine. Pick a converter, point it at your data, get clean output.
 
 > Renamed from **MifMapXL** in 1.1.0. Old GitHub URLs auto-redirect. The Excel export feature is unchanged — it is now one of several converters in a pluggable registry, with a UI that adapts to whichever direction you pick.
 
@@ -47,6 +47,29 @@ xattr -dr com.apple.quarantine /Applications/MifKit.app
 
 Unsigned Windows builds may show “Windows protected your PC”. Click **More info → Run anyway**.
 
+## CLI
+
+The desktop installer also installs a `mifkit` binary on PATH. From a checkout, `npm link` (or `npm install -g .`) gives you the same command in your shell.
+
+```bash
+mifkit                                # show top-level help
+mifkit list                           # list registered converters
+mifkit help kml-to-mif                # show one converter's options schema
+mifkit convert kml-to-mif input.kmz --output=./out --flat
+mifkit convert mif-to-xlsx ./mif-folder --output=./out --no-paint-rows
+```
+
+Conventions:
+
+- `--key=value` sets a string/enum/number option.
+- `--key` flips a boolean to true; `--no-key` flips it to false.
+- `--output=<dir>` / `-o <dir>` is required for `convert`.
+- Output paths are printed to stdout (one per line); progress and log messages go to stderr — so you can pipe outputs through other tools without parsing logs.
+
+Exit codes: `0` on success, `1` on per-file errors during conversion, `2` on usage errors (unknown converter, missing flags, invalid option types).
+
+The CLI and GUI share the same registry and validation, so options behave identically. Run `mifkit help <id>` to discover what is available without leaving the terminal.
+
 ## Feature highlights
 
 ### `mif-to-xlsx` (MapInfo → Excel/CSV)
@@ -85,11 +108,16 @@ Artifacts are written to `dist/`.
 ## Project structure
 
 ```
+bin/
+  mifkit.js                        CLI entry — thin shebang over src/cli
 src/
   main/                            Electron main process, IPC, worker orchestration
     main.js · preload.js · worker.js
   renderer/                        Desktop UI (HTML + vanilla JS + CSS, i18n)
     index.html · renderer.js · styles.css · i18n.js
+  cli/                             CLI — same registry, different front-end
+    index.js                       runCli(argv): commands list/help/convert
+    parseArgs.js · coerceOptions.js · format.js
   core/
     common/                        Shared utilities
       color.js                     KML AABBGGRR <-> MapInfo int <-> #RRGGBB
@@ -107,7 +135,8 @@ src/
     encoding.js                    charset detection via iconv-lite
     settings.js                    v1 -> v2 settings migration
 test/
-  core/ · integration/ · fixtures/ node:test suite, runs on every PR
+  cli/ · core/ · integration/      node:test suite, runs on every PR
+  fixtures/                        small MIF/MID/KML samples
 ```
 
 ## Adding a new converter
@@ -138,11 +167,11 @@ module.exports = {
 }
 ```
 
-Then add it to `src/core/converters/index.js`, drop a fixture in `test/fixtures/`, write a test under `test/integration/`, and run `npm test`. The desktop app will surface it automatically — the renderer reads the registry on startup and builds its converter dropdown + options form from each converter's schema.
+Then add it to `src/core/converters/index.js`, drop a fixture in `test/fixtures/`, write a test under `test/integration/`, and run `npm test`. Both the desktop app and the `mifkit` CLI will surface it automatically — they share the same registry and read each converter's schema at startup.
 
 ## Architecture notes
 
-Every converter exports a plain object: `id`, `name`, `inputs/outputs` shape, declarative `options[]` schema, and an async `run({inputs, output, options}, ctx)`. The GUI builds its options panel from the schema; the (future) CLI will parse flags from the same schema. Both call the same `run` so behavior is identical regardless of the entry point.
+Every converter exports a plain object: `id`, `name`, `inputs/outputs` shape, declarative `options[]` schema, and an async `run({inputs, output, options}, ctx)`. The GUI builds its options panel from the schema; the CLI parses flags from the same schema. Both call the same `run` so behavior is identical regardless of the entry point.
 
 The desktop app runs every conversion inside a `worker_threads` Worker so the UI stays responsive. Log lines and progress events are forwarded back to the renderer over IPC. Settings are persisted as JSON in Electron's userData directory and auto-migrated from older formats on load.
 
