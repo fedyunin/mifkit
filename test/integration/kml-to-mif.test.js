@@ -7,6 +7,7 @@ const zlib = require('node:zlib')
 const iconv = require('iconv-lite')
 
 const converters = require('../../src/core/converters')
+const { parseKml } = require('../../src/core/converters/kml-to-mif/parseKml')
 
 const FIXTURES = path.join(__dirname, '..', 'fixtures')
 const SAMPLE_KML = path.join(FIXTURES, 'sample.kml')
@@ -140,6 +141,51 @@ test('kml-to-mif charset=Neutral writes UTF-8', async () => {
 
   const mifText = fs.readFileSync(path.join(outDir, 'Layer_A.mif'), 'utf8')
   assert.match(mifText, /Charset "Neutral"/)
+})
+
+test('parseKml descends into nested <Document> containers (merged KMZ)', () => {
+  // Google Earth wraps each merged KMZ file in a nested <Document>, not a
+  // <Folder>. Placemarks inside those Documents must not be dropped.
+  const kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>root</name>
+    <Folder>
+      <name>outer</name>
+      <Document>
+        <name>area-1</name>
+        <Placemark><name>poly-1</name>
+          <Polygon><outerBoundaryIs><LinearRing><coordinates>
+            0,0 1,0 1,1 0,1 0,0
+          </coordinates></LinearRing></outerBoundaryIs></Polygon>
+        </Placemark>
+      </Document>
+      <Document>
+        <name>area-2</name>
+        <Placemark><name>poly-2</name>
+          <Polygon><outerBoundaryIs><LinearRing><coordinates>
+            2,2 3,2 3,3 2,3 2,2
+          </coordinates></LinearRing></outerBoundaryIs></Polygon>
+        </Placemark>
+      </Document>
+      <Folder>
+        <name>points</name>
+        <Placemark><name>pt-1</name><Point><coordinates>5,5</coordinates></Point></Placemark>
+      </Folder>
+    </Folder>
+  </Document>
+</kml>`
+
+  const { groups } = parseKml(kml)
+  const byPath = new Map(groups.map((g) => [g.path.join('/'), g]))
+
+  assert.ok(byPath.has('outer/area-1'), 'nested Document area-1 should produce a group')
+  assert.ok(byPath.has('outer/area-2'), 'nested Document area-2 should produce a group')
+  assert.ok(byPath.has('outer/points'), 'nested Folder points should still produce a group')
+
+  const total = groups.reduce((n, g) => n + g.placemarks.length, 0)
+  assert.strictEqual(total, 3, 'all three placemarks across Documents and Folders are kept')
+  assert.strictEqual(byPath.get('outer/area-1').placemarks[0].polygons.length, 1)
 })
 
 // --- KMZ builder for tests -------------------------------------------------

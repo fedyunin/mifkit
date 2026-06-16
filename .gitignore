@@ -5,3 +5,5 @@ dist/
 Thumbs.db
 .vscode/
 .idea/
+.history/
+testData

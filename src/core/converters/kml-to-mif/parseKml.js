@@ -51,9 +51,12 @@ function parseKml(kmlText) {
   const stylemaps = collectStyleMaps(document)
   const groups = []
 
-  const topFolders = ensureArray(document.Folder)
-  for (const folder of topFolders) {
-    walkFolder(folder, [], groups)
+  // Nested <Document> elements appear when several KMZ files are merged in
+  // Google Earth — each merged file becomes a Document, not a Folder. Treat
+  // Folder and nested Document as the same kind of container so their
+  // Placemarks are not silently dropped.
+  for (const child of containerChildren(document)) {
+    walkContainer(child, [], groups)
   }
 
   const directPlacemarks = ensureArray(document.Placemark)
@@ -82,8 +85,8 @@ function collectStyles(document) {
       styles.set(id, extractStyle(style))
     }
 
-    for (const folder of ensureArray(node.Folder)) {
-      queue.push(folder)
+    for (const child of containerChildren(node)) {
+      queue.push(child)
     }
   }
 
@@ -112,8 +115,8 @@ function collectStyleMaps(document) {
       }
     }
 
-    for (const folder of ensureArray(node.Folder)) {
-      queue.push(folder)
+    for (const child of containerChildren(node)) {
+      queue.push(child)
     }
   }
 
@@ -152,11 +155,11 @@ function extractStyle(node) {
   return style
 }
 
-function walkFolder(folder, path, out) {
-  const name = textOf(folder.name).trim()
+function walkContainer(container, path, out) {
+  const name = textOf(container.name).trim()
   const here = name ? [...path, name] : path
 
-  const placemarks = ensureArray(folder.Placemark)
+  const placemarks = ensureArray(container.Placemark)
   if (placemarks.length) {
     out.push({
       path: here.length ? here : ['root'],
@@ -164,9 +167,15 @@ function walkFolder(folder, path, out) {
     })
   }
 
-  for (const sub of ensureArray(folder.Folder)) {
-    walkFolder(sub, here, out)
+  for (const sub of containerChildren(container)) {
+    walkContainer(sub, here, out)
   }
+}
+
+// Folder and nested Document are both containers that may hold child
+// containers and Placemarks; collect both kinds of children in document order.
+function containerChildren(node) {
+  return [...ensureArray(node.Folder), ...ensureArray(node.Document)]
 }
 
 function normalizePlacemark(pm) {
